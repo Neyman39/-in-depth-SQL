@@ -1,0 +1,103 @@
+@startuml
+skinparam ActivityBackgroundColor #EEF5FF
+skinparam ActivityBorderColor #2C5AA0
+skinparam ArrowColor #2C5AA0
+skinparam PartitionBackgroundColor #F7F9FC
+title Процесс "От заказа до денег" (Order-to-Cash)
+
+|Клиент|
+start
+:Формирует заказ;
+note right
+  Таблица: **orders**
+  Поля: order_date, customer_id,
+        required_date, status='Новый'
+  + **order_items** (product_id,
+    quantity, unit_price, discount_pct)
+end note
+
+|Менеджер по продажам|
+:Принимает и проверяет заказ;
+
+|Система (ERP)|
+if (Сумма долга + новый заказ\n≤ credit_limit клиента?) then (да)
+  :Статус заказа → 'В работе';
+  note right: orders.status
+else (нет)
+  :Блокировка заказа;
+  |Менеджер по продажам|
+  :Связывается с клиентом\n(просит погасить долг\nили уменьшить заказ);
+  stop
+endif
+
+|Склад / Логистика|
+if (Товар есть на складе?) then (да)
+  :Комплектация и отгрузка;
+  note right
+    Таблица: **orders**
+    Поля: shipped_date,
+          status = 'Отгружен'
+  end note
+else (нет)
+  :Отмена заказа;
+  note right: orders.status = 'Отменён'
+  stop
+endif
+
+|Бухгалтерия|
+:Выставляет счёт;
+note right
+  Таблица: **invoices**
+  Поля: invoice_date,
+        due_date = invoice_date
+                  + payment_terms_days,
+        total_amount =
+          Σ order_items.line_amount
+end note
+
+|Клиент|
+:Получает счёт и оплачивает;
+
+|Бухгалтерия|
+:Проводит оплату;
+note right
+  Таблица: **payments**
+  Поля: payment_date, amount,
+        payment_method
+end note
+
+if (Оплачено полностью\nи в срок до due_date?) then (да)
+  |Система (ERP)|
+  :Статус заказа → 'Доставлен';
+  note right: orders.status
+else (частично / просрочка)
+  :Работа с дебиторской\nзадолженностью;
+  note right
+    Повторные оплаты
+    через таблицу **payments**
+  end note
+  |Клиент|
+  :Погашает остаток;
+  |Бухгалтерия|
+  :Проводит доп. оплату;
+endif
+
+|Клиент|
+if (Есть претензии\nк товару?) then (нет)
+  :Процесс завершён;
+  stop
+else (да)
+  :Оформляет возврат;
+  note right
+    Таблица: **returns**
+    Поля: return_date, product_id,
+          quantity, reason
+  end note
+  |Склад / Логистика|
+  :Принимает товар на склад;
+  |Бухгалтерия|
+  :Корректирует взаиморасчёты\n(кредит-нота);
+  stop
+endif
+
+@enduml
